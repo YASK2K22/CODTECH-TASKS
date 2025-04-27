@@ -1,0 +1,219 @@
+Task 3: IoT Security System (Motion Detection, Alerts)
+
+
+This task often involves an ESP32-CAM because it has an integrated camera, SD card slot, and Wi-Fi, making it ideal.
+Components:
+● ESP32-CAM (ensure you get one with a compatible programmer or use an FTDI adapter)
+● PIR Motion Sensor (HC-SR501 is common)
+● Jumper Wires
+● Wi-Fi Connection
+● Method for sending alerts (e.g., Blynk Notification, IFTTT Webhooks, Email)
+Concept:
+1. Wire the PIR sensor's output pin to an input GPIO pin on the ESP32-CAM.
+2. Configure the ESP32-CAM board settings and camera pins correctly in the Arduino IDE (this varies slightly by ESP32-CAM model - check examples for "AI Thinker ESP32-CAM").
+3. Connect the ESP32-CAM to Wi-Fi.
+4. In the loop(), read the state of the PIR sensor.
+5. If motion is detected (PIR output goes HIGH):
+○ Trigger an alert (e.g., send a notification via Blynk or trigger an IFTTT applet).
+○ (Optional Advanced): Capture an image using the camera and potentially store it on an SD card or upload it (uploading is more complex).
+6. Implement logic to avoid sending too many alerts in quick succession (e.g., a cooldown period).
+ESP32-CAM Code (Conceptual Example using Blynk Notification):
+
+
+#include "esp_camera.h"
+#include <WiFi.h>
+#include <BlynkSimpleEsp32.h> // For notifications
+#include "time.h"       // For NTP time synchronization - important for reliable timestamps
+
+// --- START OF CONFIGURATION ---
+// Your WiFi credentials.
+char ssid[] = "YOUR_WIFI_SSID";
+char pass[] = "YOUR_WIFI_PASSWORD";
+// Your Blynk Auth Token.
+char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
+// Define PIR Sensor Pin (Choose an available GPIO)
+const int pirPin = 13; // Example GPIO, check ESP32-CAM pinout
+// CAMERA_MODEL_AI_THINKER (Check board type)
+#define PWDN_GPIO_NUM 32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 0
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 21
+#define Y4_GPIO_NUM 19
+#define Y3_GPIO_NUM 18
+#define Y2_GPIO_NUM 5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
+// --- END OF CONFIGURATION ---
+
+bool motionDetected = false;
+unsigned long lastMotionTime = 0;
+const long notificationCooldown = 30000; // Cooldown in milliseconds (e.g., 30 seconds)
+BlynkTimer timer;
+bool isBlynkConnected = false; //track blynk connection
+
+// Function to initialize the camera
+esp_err_t initCamera() {
+    camera_config_t config;
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer = LEDC_TIMER_0;
+    config.pin_d0 = Y2_GPIO_NUM;
+    config.pin_d1 = Y3_GPIO_NUM;
+    config.pin_d2 = Y4_GPIO_NUM;
+    config.pin_d3 = Y5_GPIO_NUM;
+    config.pin_d4 = Y6_GPIO_NUM;
+    config.pin_d5 = Y7_GPIO_NUM;
+    config.pin_d6 = Y8_GPIO_NUM;
+    config.pin_d7 = Y9_GPIO_NUM;
+    config.pin_xclk = XCLK_GPIO_NUM;
+    config.pin_pclk = PCLK_GPIO_NUM;
+    config.pin_vsync = VSYNC_GPIO_NUM;
+    config.pin_href = HREF_GPIO_NUM;
+    config.pin_sccb_sda = SIOD_GPIO_NUM;
+    config.pin_sccb_scl = SIOC_GPIO_NUM;
+    config.pin_pwdn = PWDN_GPIO_NUM;
+    config.pin_reset = RESET_GPIO_NUM;
+    config.xclk_freq_hz = 20000000;
+    config.pixel_format = PIXFORMAT_JPEG; // JPEG for smaller file size
+    // Frame size - QVGA is small and fast, good for previews/alerts
+    config.frame_size = FRAMESIZE_QVGA;    // (320x240) Use smaller size for faster processing
+    config.jpeg_quality = 12;             // 0-63 lower number means higher quality
+    config.fb_count = 1;                 // Use 1 frame buffer
+
+    // Camera init
+    esp_err_t err = esp_camera_init(&config);
+    if (err != ESP_OK) {
+        Serial.printf("Camera init failed with error 0x%x\n", err);
+        return err; // Return the error code
+    }
+    Serial.println("Camera initialized.");
+    return ESP_OK; // Return success
+}
+
+void connectToWifi() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, pass);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) { // Increased attempts
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("Connected to WiFi");
+  } else {
+    Serial.println("Failed to connect to WiFi. Restarting...");
+    ESP.restart(); //restart if it cannot connect to wifi
+  }
+}
+
+void connectToBlynk() {
+    if (!Blynk.connected()) {
+        Serial.println("Connecting to Blynk...");
+        Blynk.begin(auth, WiFi.SSID().c_str(), WiFi.psk().c_str());
+    }
+}
+
+void checkBlynkConnection() {
+  if (!Blynk.connected()) {
+    Serial.println("Blynk disconnected");
+    isBlynkConnected = false;
+    connectToBlynk(); // Reconnect to Blynk
+  } else if (!isBlynkConnected) {
+    Serial.println("Blynk reconnected");
+    isBlynkConnected = true;
+  }
+}
+
+void sendMotionAlert() {
+    if (isBlynkConnected) {
+        Blynk.notify("ALERT: Motion detected in the room!");
+        Serial.println("Blynk notification sent.");
+    } else {
+        Serial.println("Blynk not connected.  Motion alert not sent.");
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    Serial.setDebugOutput(true);
+    Serial.println();
+
+    // Initialize Camera
+    if (initCamera() != ESP_OK) {
+        Serial.println("Failed to initialize camera.  Halting.");
+        while (1) {
+            delay(1000); // Stop here.  Camera is critical.
+        }
+    }
+
+    // PIR Sensor Pin
+    pinMode(pirPin, INPUT);
+
+    // Connect to Wi-Fi
+    connectToWifi();
+
+    // Connect to Blynk
+    Blynk.begin(auth, ssid, pass);
+    isBlynkConnected = true;
+
+    // Setup a timer to check Blynk connection every 5 seconds
+    timer.setInterval(5000L, checkBlynkConnection);
+
+    // Initialize NTP for timestamping (optional, but highly recommended)
+    configTime(0, 0, "pool.ntp.org"); // Get time from NTP server
+    setenv("TZ", "CST6CDT", 1);  // Set time zone.  Replace with your timezone.
+    tzset();
+}
+
+void loop() {
+    Blynk.run();
+    timer.run();
+    int pirState = digitalRead(pirPin);
+    unsigned long currentTime = millis();
+
+    if (pirState == HIGH) {
+        if (!motionDetected && (currentTime - lastMotionTime > notificationCooldown)) {
+            Serial.println("Motion detected!");
+            motionDetected = true;
+            lastMotionTime = currentTime;
+            sendMotionAlert();
+
+            // --- Optional: Capture and handle image ---
+            /*
+            camera_fb_t * fb = esp_camera_fb_get();
+            if (!fb) {
+                Serial.println("Camera capture failed");
+            } else {
+                Serial.printf("Picture taken! Size: %zu bytes\n", fb->len);
+                // Can print the time:
+                time_t now;
+                struct tm timeinfo;
+                time(&now);
+                localtime_r(&now, &timeinfo);
+                Serial.printf("Timestamp: %04d-%02d-%02d %02d:%02d:%02d\n",
+                        timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
+                        timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+
+                // Here you would add code to:
+                // 1. Save image to SD card (requires SD library setup)
+                // 2. Upload image to a server/cloud storage (complex)
+                esp_camera_fb_return(fb); // Return frame buffer
+            }
+            */
+            // --- End Optional Image Capture ---
+        }
+    } else {
+        if (motionDetected) {
+            Serial.println("Motion stopped.");
+            motionDetected = false; // Reset motion detection flag
+        }
+    }
+    delay(100); // Small delay to prevent busy-waiting
+}
