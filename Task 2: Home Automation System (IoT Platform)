@@ -1,0 +1,118 @@
+Task 2: Home Automation System (IoT Platform)
+This task uses Wi-Fi enabled microcontrollers and cloud platforms for control. Blynk is generally easier for beginners than setting up a full MQTT system.
+Components:
+● ESP8266 (NodeMCU) or ESP32
+● LEDs (to simulate lights/fans)
+● Resistors (e.g., 220 Ohm for LEDs)
+● (Optional but Recommended for Safety): Relays (e.g., 5V Relay Module) if controlling mains devices. Again, be careful with mains voltage.
+● Breadboard and Jumper Wires
+● Wi-Fi Connection
+● Smartphone with Blynk App
+Concept (Using Blynk):
+1. Set up a Blynk project: Create an account, start a new project, choose your hardware (ESP8266/ESP32), get the Auth Token (emailed to you).
+2. Add widgets to the Blynk app dashboard: Add Button widgets, assign them to Virtual Pins (e.g., V1 for Light, V2 for Fan).
+3. Wire LEDs (or relays) to GPIO pins on the ESP8266/ESP32.
+4. Write Arduino code for the ESP board: Include Blynk libraries, connect to Wi-Fi, connect to Blynk using your Auth Token.
+5. Implement BLYNK_WRITE(Vx) functions: These functions automatically trigger when the state of the corresponding Virtual Pin widget changes in the app. Inside these functions, control the GPIO pins connected to your LEDs/relays.
+ESP8266/ESP32 Code (Example using Blynk):
+
+
+#define BLYNK_PRINT Serial // Optional: Allows Blynk messages on Serial Monitor
+#include <ESP8266WiFi.h>     // Use <WiFi.h> for ESP32
+#include <BlynkSimpleEsp8266.h> // Use <BlynkSimpleEsp32.h> for ESP32
+
+// --- START OF CONFIGURATION ---
+// Your WiFi credentials.
+char ssid[] = "YOUR_WIFI_SSID";
+char pass[] = "YOUR_WIFI_PASSWORD";
+// Your Blynk Auth Token.
+char auth[] = "YOUR_BLYNK_AUTH_TOKEN";
+// Define GPIO pins for devices
+// For NodeMCU: D1 = GPIO5, D2 = GPIO4, D5 = GPIO14, D6 = GPIO12 etc.
+// For ESP32: Use GPIO numbers directly (e.g., 21, 22, 23)
+const int lightPin = D1; // Example: GPIO5 on NodeMCU
+const int fanPin = D2;   // Example: GPIO4 on NodeMCU
+// --- END OF CONFIGURATION ---
+
+// Blynk Timer (for handling disconnections)
+BlynkTimer timer;
+bool isConnected = false; // Track connection status
+
+void connectToWifi() {
+  Serial.print("Connecting to WiFi...");
+  WiFi.begin(ssid, pass);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) { // Increased attempts
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("Connected to WiFi");
+  } else {
+    Serial.println("Failed to connect to WiFi. Restarting...");
+    ESP.restart(); //restart if it cannot connect to wifi
+  }
+}
+
+void connectToBlynk() {
+  if (!Blynk.connected()) {
+    Serial.println("Connecting to Blynk...");
+    Blynk.begin(auth, WiFi.SSID().c_str(), WiFi.psk().c_str()); // Use current WiFi credentials
+  }
+}
+
+void checkBlynkConnection() { //check the blynk connection
+  if (!Blynk.connected()) {
+    Serial.println("Blynk disconnected");
+    isConnected = false;
+    connectToBlynk(); // Reconnect to Blynk
+  } else if (!isConnected) {
+    Serial.println("Blynk reconnected");
+    isConnected = true;
+  }
+}
+
+
+void setup() {
+  Serial.begin(115200); // Use a faster baud rate for ESP boards
+  delay(100);
+  pinMode(lightPin, OUTPUT);
+  pinMode(fanPin, OUTPUT);
+  digitalWrite(lightPin, LOW); // Start with devices off
+  digitalWrite(fanPin, LOW);
+  connectToWifi(); //connect to wifi
+
+  Blynk.begin(auth, ssid, pass);
+  isConnected = true;
+
+  // Setup a timer to check Blynk connection every 5 seconds
+  timer.setInterval(5000L, checkBlynkConnection);
+}
+
+// This function is called every time the Widget connected to Virtual Pin V1 changes state
+BLYNK_WRITE(V1) {
+  int pinValue = param.asInt(); // Get value from app (0 or 1 for Button)
+  digitalWrite(lightPin, pinValue);    // Control the light pin
+  Serial.print("Light (V1) state changed to: ");
+  Serial.println(pinValue);
+  // Optional: Send status back to app if needed (e.g., using Blynk.virtualWrite)
+  // Blynk.virtualWrite(V10, pinValue ? "Light ON" : "Light OFF"); // Example on V10 Label widget
+}
+
+// This function is called every time the Widget connected to Virtual Pin V2 changes state
+BLYNK_WRITE(V2) {
+  int pinValue = param.asInt(); // Get value from app
+  digitalWrite(fanPin, pinValue);    // Control the fan pin
+  Serial.print("Fan (V2) state changed to: ");
+  Serial.println(pinValue);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    connectToWifi();
+  }
+  Blynk.run(); // This keeps the connection with the Blynk server active
+  timer.run();
+  // You can add other non-blocking code here if needed
+}
