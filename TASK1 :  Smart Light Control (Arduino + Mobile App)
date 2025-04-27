@@ -1,0 +1,102 @@
+
+Task 1: Smart Light Control (Arduino + Mobile App)
+
+This task focuses on basic microcontroller control and communication, often using Bluetooth for simplicity between the Arduino and a mobile app.
+Components:
+● Arduino Uno (or similar)
+● LED
+● Resistor (e.g., 220 Ohm)
+● Bluetooth Module (HC-05 or HC-06)
+● Breadboard and Jumper Wires
+● Mobile Phone with a Bluetooth Terminal App or a custom app (e.g., built with MIT App Inventor).
+Concept:
+1. Wire the LED (with its resistor) to a digital pin on the Arduino.
+2. Wire the Bluetooth module (HC-05/06) to the Arduino's serial pins (using SoftwareSerial is common to leave hardware serial free for debugging).
+3. The Arduino listens for specific commands (e.g., '1' for ON, '0' for OFF) arriving via Bluetooth.
+4. A mobile app connects to the Bluetooth module and sends these commands when buttons are pressed.
+
+
+Arduino Code (Example using SoftwareSerial):
+
+
+#include <SoftwareSerial.h>
+
+// Define the pins for the Bluetooth module.
+// Connect Arduino RX (Pin 10) to HC-05 TX.
+// Connect Arduino TX (Pin 11) to HC-05 RX.  Use a voltage divider on the HC-05 RX pin if your Arduino uses 5V logic and the HC-05 uses 3.3V.
+SoftwareSerial BTSerial(10, 11); // RX | TX
+
+// Define the pin for the LED.
+const int ledPin = 8;
+
+// Variable to store the command received from the Bluetooth module.
+char command;
+
+void setup() {
+  // Initialize serial communication for debugging.
+  Serial.begin(9600);
+  Serial.println("Initializing...");
+
+  // Initialize serial communication with the Bluetooth module.
+  BTSerial.begin(9600); // Default baud rate for HC-05/06 is often 9600 or 38400.
+
+  // Configure the LED pin as an output.
+  pinMode(ledPin, OUTPUT);
+
+  // Ensure the LED is initially off.
+  digitalWrite(ledPin, LOW);
+  Serial.println("LED pin configured and set to LOW.");
+
+  // Send a message to the Bluetooth module to indicate successful connection.
+  BTSerial.println("Bluetooth connection established!");
+  Serial.println("Arduino setup complete. Ready for commands.");
+}
+
+void loop() {
+  // Check for data available from the Bluetooth module.
+  if (BTSerial.available()) {
+    // Read the incoming character (command) from the Bluetooth module.
+    command = BTSerial.read();
+    Serial.print("Received command from Bluetooth: ");
+    Serial.println(command);
+
+    // Control the LED based on the received command.
+    if (command == '1') {
+      digitalWrite(ledPin, HIGH); // Turn the LED ON.
+      BTSerial.println("Turning LED ON.");
+      Serial.println("LED turned ON.");
+    } else if (command == '0') {
+      digitalWrite(ledPin, LOW); // Turn the LED OFF.
+      BTSerial.println("Turning LED OFF.");
+      Serial.println("LED turned OFF.");
+    } else {
+      // Handle unknown commands.
+      BTSerial.println("Error: Unknown command received.");
+      Serial.print("Error: Unknown command '");
+      Serial.print(command);
+      Serial.println("' received from Bluetooth.");
+    }
+  }
+
+  // Check for data available from the Serial Monitor (for testing purposes).
+  if (Serial.available()) {
+    char serialCmd = Serial.read();
+    Serial.print("Received command from Serial Monitor: ");
+    Serial.println(serialCmd);
+
+    if (serialCmd == '1') {
+      digitalWrite(ledPin, HIGH);
+      Serial.println("LED turned ON via Serial Monitor.");
+    } else if (serialCmd == '0') {
+      digitalWrite(ledPin, LOW);
+      Serial.println("LED turned OFF via Serial Monitor.");
+    }
+     else {
+      // Handle unknown commands.
+      Serial.print("Error: Unknown command '");
+      Serial.print(serialCmd);
+      Serial.println("' received from Serial Monitor.");
+    }
+  }
+  // No explicit delay() is needed here, as the loop() function inherently provides a small delay.
+}
